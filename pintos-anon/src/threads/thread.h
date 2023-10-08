@@ -80,6 +80,12 @@ typedef int tid_t;
    only because they are mutually exclusive: only a thread in the
    ready state is on the run queue, whereas only a thread in the
    blocked state is on a semaphore wait list. */
+
+struct thread_args {
+   char* func;
+   struct process_hierarchy *ph;
+};
+
 struct thread
   {
     /* Owned by thread.c. */
@@ -100,6 +106,8 @@ struct thread
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
+    struct process_hierarchy *ph;
+    struct list children;
   };
 
 /* If false (default), use round-robin scheduler.
@@ -113,7 +121,7 @@ void thread_start (void);
 void thread_tick (void);
 void thread_print_stats (void);
 
-typedef void thread_func (void *aux);
+typedef void thread_func (struct thread_args *targs);
 tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
 void thread_block (void);

@@ -18,8 +18,20 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
-static thread_func start_process NO_RETURN;
+static thread_func start_process 
+  NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+static void free_children(struct thread *);
+
+
+void init_process_hierarchy(struct process_hierarchy *ph)
+{
+  ph->is_exit=false;
+  sema_init(&ph->waitLock,0); /* Deals with the process_wait() */
+  ph->numThreads=2; /*exec() makes a child process resulting in two threads*/
+  lock_init(&ph->cvLock);
+  ph->exit_code = 1; /* Always 1 only -1 if loading program has failed */
+}
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -31,6 +43,11 @@ process_execute (const char *file_name)
   char *fn_copy;
   tid_t tid;
 
+  struct process_hierarchy *ph = malloc(sizeof(struct process_hierarchy));
+  init_process_hierarchy(ph);
+  struct thread *cur = thread_current(); /* NOTE THIS IS THE PARENT PROCESS */
+  list_push_back(&(cur->children),&(ph->children)); //PUSH THE CHILD TO THE LIST
+
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
@@ -38,10 +55,25 @@ process_execute (const char *file_name)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
 
+  struct thread_args *targs = malloc(sizeof(struct thread_args));
+  targs->ph = ph;
+  targs->func=fn_copy;
+
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
-  if (tid == TID_ERROR)
-    palloc_free_page (fn_copy); 
+  tid = thread_create (file_name, PRI_DEFAULT, start_process, targs);
+  if (tid == TID_ERROR){
+    palloc_free_page (fn_copy);
+    free(ph);
+    return TID_ERROR;
+  }
+
+  sema_down(&ph->waitLock);
+
+  if (ph->exit_code == -1 && ph->is_exit == true){
+    list_remove(&ph->children);
+    free(ph);
+    return -1;
+  }
   return tid;
 }
 
@@ -80,10 +112,10 @@ static int push_args (char* file_name, int cmd_len,int argc, int* esp) {
 
 /* A thread function that loads a user process and starts it
    running. */
-static void
-start_process (void *file_name_)
+static void 
+start_process (struct thread_args *file_name_)
 {
-  char *file_name = file_name_;
+  char *file_name = file_name_->func;
   struct intr_frame if_;
   bool success;
 
@@ -101,8 +133,19 @@ start_process (void *file_name_)
   
   success = load (file_name, &if_.eip, &if_.esp);
 
+  struct thread *t = thread_current();
+  t->ph = file_name_->ph;
+  t->ph->pid = t->tid;
+  list_init(&t->children);
+
+  free(file_name_);
+
   /* If load failed, quit. */
   if (!success) {
+    t->ph->exit_code = -1;
+    t->ph->is_exit = true;
+    sema_up(&t->ph->waitLock);
+    palloc_free_page(file_name);
     thread_exit ();
   }
   
@@ -118,6 +161,8 @@ start_process (void *file_name_)
   *((int *) (if_.esp+4)) = argv;
   *((int *) (if_.esp))   = argc;
   if_.esp-=4;
+
+  sema_up(&t->ph->waitLock);
   
   hex_dump(if_.esp, if_.esp,PHYS_BASE - if_.esp, true);
   /* Start the user process by simulating a return from an
@@ -128,6 +173,22 @@ start_process (void *file_name_)
      and jump to it. */
   asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
   NOT_REACHED ();
+}
+
+struct process_hierarchy * find_childtid(struct thread* t,tid_t child_tid)
+{
+  struct process_hierarchy *result = NULL;
+  struct list *children = &t->children;
+  for (struct list_elem *e = list_begin(children) ; e != list_end(children) ; e = list_next(e))
+  {
+    struct process_hierarchy *child = list_entry(e, struct process_hierarchy, children);
+    if(child->pid == child_tid)
+    {
+      result = child;
+      break;
+    }
+  }
+  return result;
 }
 
 /* Waits for thread TID to die and returns its exit status.  If
@@ -142,7 +203,17 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  return -1;
+  struct thread *cur = thread_current();
+  struct process_hierarchy *child = find_childtid(cur,child_tid);
+  if (child==NULL)
+    return -1;
+  
+  sema_down(&child->waitLock);
+  int exit_code = child->exit_code;
+
+  list_remove(&child->children);
+  free(child);
+  return exit_code;
 }
 
 /* Free the current process's resources. */
@@ -151,6 +222,15 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
+  
+  decreaseThreads(cur->ph);
+
+  free_children (cur);
+
+  if (cur->ph->numThreads == 0)
+    free(cur->ph);
+  else
+    sema_up(&(cur->ph->waitLock));
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -168,6 +248,14 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+}
+
+void
+decreaseThreads(struct process_hierarchy *ph)
+{
+  lock_acquire(&ph->cvLock);
+  ph->numThreads--;
+  lock_release(&ph->cvLock);
 }
 
 /* Sets up the CPU for running user code in the current
@@ -516,4 +604,19 @@ install_page (void *upage, void *kpage, bool writable)
      address, then map our page there. */
   return (pagedir_get_page (t->pagedir, upage) == NULL
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
+}
+
+static void
+free_children (struct thread *t)
+{
+  struct list *children = &t->children;
+  for (struct list_elem *e = list_begin(children) ; e != list_end(children) ; list_next(e) )
+  {
+    struct process_hierarchy *cur_child = list_entry(e,struct process_hierarchy,children);
+    if(cur_child->numThreads==1)
+    {
+      e = list_remove(&cur_child->children)->prev;
+      free(cur_child);
+    }
+  }
 }
