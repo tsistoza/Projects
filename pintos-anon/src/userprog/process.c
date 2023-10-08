@@ -153,8 +153,6 @@ start_process (struct thread_args *file_name_)
   int argv = push_args(file_name, cmd_len, argc, (int *) &if_.esp);
   if_.esp -= ((int) ((unsigned int) (if_.esp)%16)+8);
   
-  palloc_free_page (file_name);
-
 
   /* push argv and argc */
   if_.esp -= 8;

@@ -6,10 +6,31 @@
 #include "threads/interrupt.h"
 #include "threads/vaddr.h"
 
+
+#include "threads/malloc.h"
+#include "threads/palloc.h"
+#include "threads/synch.h"
+#include "filesys/filesys.h"
+#include "filesys/file.h"
+#include "filesys/directory.h"
+#include "filesys/inode.h"
+#include "devices/input.h"
+#include "devices/shutdown.h"
+
+
+#include "userprog/exception.h"
+#include "userprog/pagedir.h"
+
+/* UTILS */
 static bool validate_address(const void *vaddr);
-static void sys_exec (struct intr_frame *, char *);
+struct file_descriptor *get_file_descriptor(fid_t fid);
+
+/* SYSTEM CALL FUNCTIONS */
 /* WAIT AND HALT IS IMPLEMETED ON THE syscall_handler */
+static int  create_fd (struct file *);
+static void sys_exec (struct intr_frame *, char *);
 static void sys_exit (struct intr_frame *,int status);
+static int  sys_open (struct intr_frame *f, const char *file_);
 
 
 
@@ -49,6 +70,8 @@ syscall_handler (struct intr_frame *f)
                    break;
     case SYS_EXEC: sys_exec(f,(char *)args[1]);
                    break;
+    case SYS_OPEN: sys_open(f,(char *)args[1]);
+                   break;
     default: sys_exit(f,args[1]);
   }
 
@@ -67,3 +90,50 @@ sys_exit (struct intr_frame *f, int status)
   f->eax = status;
 }
 
+static int
+sys_open (struct intr_frame *f,const char *file_name)
+{
+  struct file *file_ = filesys_open(file_name);
+  f->eax = -1;
+  if(file_)
+  {
+    fid_t fid = create_fd (file_);
+    struct inode *inode = file_get_inode(file_);
+    if(inode)
+      get_file_descriptor(fid)->dir = dir_open (inode_reopen (inode));
+    f->eax=fid;
+  }
+}
+
+
+// FILE DESCRIPTORS
+static int create_fd(struct file *file_)
+{
+  #ifdef USERPROG
+    struct thread* t = thread_current();
+    struct file_descriptor *fd = malloc(sizeof(struct file_descriptor));
+    fd->file = file_;
+    fd->dir = NULL;
+    fd->fid = t->next_fd++;
+    list_push_back(&t->fd_list,&fd->fd_elem);
+    return fd->fid;
+  #endif
+}
+
+struct file_descriptor *get_file_descriptor(fid_t fid)
+{
+  #ifdef USERPROG
+    struct list *list_ = &thread_current()->fd_list;
+    if(list_empty(list_))
+      return NULL;
+
+    struct list_elem *elem = list_begin(list_);
+    for(; elem != list_end(list_) ; elem = list_next(elem))
+    {
+      struct file_descriptor *fd = list_entry(elem, struct file_descriptor, fd_elem);
+      if (fd->fid == fid)
+        return fd;
+    }
+    return NULL;
+  #endif
+}
