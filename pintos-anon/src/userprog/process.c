@@ -46,6 +46,7 @@ process_execute (const char *file_name)
   struct process_hierarchy *ph = malloc(sizeof(struct process_hierarchy));
   init_process_hierarchy(ph);
   struct thread *cur = thread_current(); /* NOTE THIS IS THE PARENT PROCESS */
+  printf("I am the parent %d\n",cur->tid);
   list_push_back(&(cur->children),&(ph->children)); //PUSH THE CHILD TO THE LIST
 
   /* Make a copy of FILE_NAME.
@@ -199,7 +200,7 @@ struct process_hierarchy * find_childtid(struct thread* t,tid_t child_tid)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
   struct thread *cur = thread_current();
   struct process_hierarchy *child = find_childtid(cur,child_tid);
@@ -220,7 +221,7 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
-  
+  printf("Check parent: %d\n",cur->tid);
   decreaseThreads(cur->ph);
 
   free_children (cur);

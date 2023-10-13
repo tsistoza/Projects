@@ -466,6 +466,7 @@ init_thread (struct thread *t, const char *name, int priority)
 
   /* FILE DESCRIPTORS */
   t->next_fd = 2; /* fdt[0] and fdt[1] reserved */
+  memset (&(t->fd_list), 0, sizeof(struct list));
   list_init (&t->fd_list);
 
   /* CHILD PROCESSES */
