@@ -28,9 +28,10 @@ struct file_descriptor *get_file_descriptor(fid_t fid);
 /* SYSTEM CALL FUNCTIONS */
 /* WAIT AND HALT IS IMPLEMETED ON THE syscall_handler */
 static int  create_fd (struct file *);
-static void sys_exec (struct intr_frame *, char *);
-static void sys_exit (struct intr_frame *,int status);
-static int  sys_open (struct intr_frame *f, const char *file_);
+static void sys_exec (struct intr_frame *,  char *);
+static void sys_exit (struct intr_frame *,  int status);
+static void sys_open (struct intr_frame *f, const char *file_);
+static void sys_close(struct intr_frame *f, fid_t);
 
 
 
@@ -62,16 +63,18 @@ syscall_handler (struct intr_frame *f)
 
   uint32_t sys_code = args[0];
   switch (sys_code) {
-    case SYS_EXIT: sys_exit(f,-1);
-                   break;
-    case SYS_HALT: shutdown_power_off();
-                   break;
-    case SYS_WAIT: f->eax = process_wait((tid_t) args[1]);
-                   break;
-    case SYS_EXEC: sys_exec(f,(char *)args[1]);
-                   break;
-    case SYS_OPEN: sys_open(f,(char *)args[1]);
-                   break;
+    case SYS_EXIT:  sys_exit(f,-1);
+                    break;
+    case SYS_HALT:  shutdown_power_off();
+                    break;
+    case SYS_WAIT:  f->eax = process_wait((tid_t) args[1]);
+                    break;
+    case SYS_EXEC:  sys_exec(f,(char *)args[1]);
+                    break;
+    case SYS_OPEN:  sys_open(f,(char *)args[1]);
+                    break;
+    case SYS_CLOSE: sys_close(f, (fid_t)args[1]);
+                    break;
     default: sys_exit(f,args[1]);
   }
 
@@ -90,7 +93,7 @@ sys_exit (struct intr_frame *f, int status)
   f->eax = status;
 }
 
-static int
+static void
 sys_open (struct intr_frame *f,const char *file_name)
 {
   struct file *file_ = filesys_open(file_name);
@@ -104,6 +107,28 @@ sys_open (struct intr_frame *f,const char *file_name)
     f->eax=fid;
   }
 }
+
+static void
+sys_close (struct intr_frame *f, fid_t fid)
+{
+  if (fid < 2)
+    sys_exit(f,-1);
+  else{
+    struct file_descriptor *fd = get_file_descriptor(fid);
+    f->eax = -1; //RETURN -1 if close failed
+    if (fd)
+    {
+      file_close(fd->file); /* file_close from src/filesys/file.c */
+      if (fd->dir)
+        dir_close(fd->dir);
+      list_remove(&fd->fd_elem);
+      free(fd);
+      f->eax = 0;
+    }
+  }
+}
+
+//FILE MANIPULATORS
 
 
 // FILE DESCRIPTORS
