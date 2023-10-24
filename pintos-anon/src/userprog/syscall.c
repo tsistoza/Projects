@@ -32,6 +32,9 @@ static void sys_exec (struct intr_frame *,  char *);
 static void sys_exit (struct intr_frame *,  int status);
 static void sys_open (struct intr_frame *f, const char *file_);
 static void sys_close(struct intr_frame *f, fid_t);
+static void sys_create(struct intr_frame *f,const char*, off_t);
+static void sys_remove(struct intr_frame *f,const char*);
+static void sys_filesize(struct intr_frame *f, fid_t);
 
 
 
@@ -63,22 +66,30 @@ syscall_handler (struct intr_frame *f)
 
   uint32_t sys_code = args[0];
   switch (sys_code) {
-    case SYS_EXIT:  sys_exit(f,-1);
-                    break;
-    case SYS_HALT:  shutdown_power_off();
-                    break;
-    case SYS_WAIT:  f->eax = process_wait((tid_t) args[1]);
-                    break;
-    case SYS_EXEC:  sys_exec(f,(char *)args[1]);
-                    break;
-    case SYS_OPEN:  sys_open(f,(char *)args[1]);
-                    break;
-    case SYS_CLOSE: sys_close(f, (fid_t)args[1]);
-                    break;
+    case SYS_EXIT:     sys_exit(f,-1);
+                       break;
+    case SYS_HALT:     shutdown_power_off();
+                       break;
+    case SYS_WAIT:     f->eax = process_wait((tid_t) args[1]);
+                       break;
+    case SYS_EXEC:     sys_exec(f,(char *)args[1]);
+                       break;
+    case SYS_OPEN:     sys_open(f, (char *)args[1]);
+                       break;
+    case SYS_CLOSE:    sys_close(f, (fid_t)args[1]);
+                       break;
+    case SYS_CREATE:   sys_create(f, (char *)args[1],args[2]);
+                       break;
+    case SYS_REMOVE:   sys_remove(f, (char *)args[1]);
+                       break;
+    case SYS_FILESIZE: sys_filesize(f, (fid_t)args[1]);
+                       break;
     default: sys_exit(f,args[1]);
   }
 
 }
+
+/* MAIN SYSTEM CALLS */
 
 static void
 sys_exec (struct intr_frame *f, char *command)
@@ -129,7 +140,35 @@ sys_close (struct intr_frame *f, fid_t fid)
 }
 
 //FILE MANIPULATORS
+static void
+sys_create(struct intr_frame *f,const char* file_name,off_t initial_size)
+{
+  if (!validate_address (file_name))
+    sys_exit(f,-1);
+  else
+    f->eax = filesys_create (file_name, initial_size);
+}
 
+static void
+sys_remove(struct intr_frame *f, const char* file_name)
+{
+  if(!validate_address(file_name))
+    sys_exit(f,-1);
+  else
+    f->eax = filesys_remove (file_name);
+}
+
+static void
+sys_filesize(struct intr_frame *f, fid_t fid)
+{
+  if (fid < 2)
+    sys_exit(f,-1);
+  else
+  {
+    struct file_descriptor *fd = get_file_descriptor(fid);
+    f->eax = fd ? file_length(fd->file) : -1;
+  }
+}
 
 // FILE DESCRIPTORS
 static int create_fd(struct file *file_)
