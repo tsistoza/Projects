@@ -46,7 +46,7 @@ process_execute (const char *file_name)
   struct process_hierarchy *ph = malloc(sizeof(struct process_hierarchy));
   init_process_hierarchy(ph);
   struct thread *cur = thread_current(); /* NOTE THIS IS THE PARENT PROCESS */
-  printf("I am the parent %d\n",cur->tid);
+  //printf("I am the parent %d\n",cur->tid);
   list_push_back(&(cur->children),&(ph->children)); //PUSH THE CHILD TO THE LIST
 
   /* Make a copy of FILE_NAME.
@@ -221,7 +221,7 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
-  printf("Check parent: %d\n",cur->tid);
+  //printf("Check parent: %d\n",cur->tid);
   decreaseThreads(cur->ph);
 
   free_children (cur);

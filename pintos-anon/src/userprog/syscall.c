@@ -65,6 +65,9 @@ syscall_handler (struct intr_frame *f)
   }
 
   uint32_t sys_code = args[0];
+  printf("sys_code = %"PRIu32"\n",sys_code);
+  printf("arguments = %p\n", &args[5]);
+
   switch (sys_code) {
     case SYS_EXIT:     sys_exit(f,-1);
                        break;
