@@ -79,36 +79,42 @@ process_execute (const char *file_name)
 }
 
 //SETUP THE STACK
-static int push_args (char* file_name, int cmd_len,int argc, int* esp) {
-  //PUSHING CMD TO STACK.
-  *esp -= cmd_len+1;
-  memcpy((void*) *esp, file_name, cmd_len+1);
-  int argv_offeset = *esp;
-
-  int align_size = ((unsigned int) *esp) %4;
-  *esp -= align_size;
-  memset((void*) *esp, 0xff, align_size);
-
-  //PUSH ARGV TO STACK
-  *esp-=4*argc;
-  memset((void *) *esp,0,4);
-  const char *arg = file_name;
-  for(int i=0 ; i<argc ; i++){
-    int i=0;
-    while(*(arg+i)==0 || *(arg+i) == ' ')
-      i++;
-    arg+=i;
-    argv_offeset+=i;
-
-    // push here 
-    *((int *) (*esp)) = argv_offeset;
-    argv_offeset += strlen(arg) + 1;
-    arg += strlen (arg) + 1;
-    *esp+=4;
+static void push_args (const char* cmd_line_tokens[],int argc, void **esp) 
+{
+  ASSERT(argc>=0);
+  //PUSHING CMDLINE TO STACK.
+  int i, len = 0;
+  void* argv_addr[argc]; /* Use this to store address of argvs */
+  for(i=argc-1 ; i>-1 ; i--){
+    len = strlen(cmd_line_tokens[i]) + 1;
+    *esp -= len;
+    memcpy(*esp,cmd_line_tokens[i],len);
+    argv_addr[i] = *esp;
   }
 
-  *esp-=4*(argc);
-  return *esp;
+  //align word
+  *esp = (void*)((unsigned int)(*esp) & 0xfffffffc);
+
+  //last null
+  *esp -= 4;
+
+  //push argv addresses
+  for(i = argc-1 ; i>=0 ; i--) {
+    *esp-=4;
+    *((void**) *esp) = argv_addr[i];
+  }
+
+  //push argv address location
+  *esp -= 4;
+  *((void**) *esp) = (*esp + 4);
+
+  //setting arc
+  *esp -= 4;
+  *((int *) *esp) = argc;
+
+  //setting return address (FAKE)
+  *esp -= 4;
+  *((int*) *esp) = 0;
 }
 
 /* A thread function that loads a user process and starts it
@@ -117,6 +123,7 @@ static void
 start_process (struct thread_args *file_name_)
 {
   char *file_name = file_name_->func;
+  const char **cmd_line_tokens = (const char **) palloc_get_page(0);
   struct intr_frame if_;
   bool success;
 
@@ -126,12 +133,15 @@ start_process (struct thread_args *file_name_)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   
-  int argc=0; int cmd_len = strlen(file_name);
+  int argc=0;
   char* token;
   char* saveptr;
   for(token = strtok_r(file_name," ",&saveptr) ; token != NULL ; token = strtok_r(NULL," ",&saveptr))
+  {
+    cmd_line_tokens[argc] = token;
     argc++;
-  
+  }
+    
   success = load (file_name, &if_.eip, &if_.esp);
 
   struct thread *t = thread_current();
@@ -151,15 +161,9 @@ start_process (struct thread_args *file_name_)
   }
   
   /* Setup User Stack through esp and eip */
-  int argv = push_args(file_name, cmd_len, argc, (int *) &if_.esp);
-  if_.esp -= ((int) ((unsigned int) (if_.esp)%16)+8);
-  
-
-  /* push argv and argc */
-  if_.esp -= 8;
-  *((int *) (if_.esp+4)) = argv;
-  *((int *) (if_.esp))   = argc;
-  if_.esp-=4;
+  push_args(cmd_line_tokens, argc, &if_.esp);
+  palloc_free_page(file_name);
+  palloc_free_page(cmd_line_tokens);  
 
   sema_up(&t->ph->waitLock);
   
