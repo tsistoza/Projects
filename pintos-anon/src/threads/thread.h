@@ -17,6 +17,7 @@ enum thread_status
 /* Thread identifier type.
    You can redefine this to whatever type you like. */
 typedef int tid_t;
+typedef int fid_t;
 #define TID_ERROR ((tid_t) -1)          /* Error value for tid_t. */
 
 /* Thread priorities. */
@@ -106,8 +107,15 @@ struct thread
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
+
+    /* For Child Processes */
     struct process_hierarchy *ph;
     struct list children;
+
+    /* For File Descriptors */
+    struct list fd_list;
+    int next_fd;
+    struct file *exec_file;
   };
 
 /* If false (default), use round-robin scheduler.

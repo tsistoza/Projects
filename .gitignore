@@ -9,3 +9,10 @@
 .sudo_as_admin_successful
 .wget-hsts
 .viminfo
+pintos-anon/src/tests/userprog/args-none.output
+pintos-anon/src/tests/userprog/args-none.errors
+pintos-anon/src/utils/qemu
+pintos-anon/src/utils/qemu
+pintos-anon/src/utils/qemu
+pintos-anon/src/utils/filesys.dsk
+pintos-anon/src/utils/qemu

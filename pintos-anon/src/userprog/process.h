@@ -5,6 +5,14 @@
 #include "threads/synch.h"
 
 typedef int pid_t;
+typedef int fid_t;
+
+struct file_descriptor {
+    fid_t fid;
+    struct file *file;
+    struct dir *dir;
+    struct list_elem fd_elem;
+};
 
 struct process_hierarchy {
     pid_t pid;
