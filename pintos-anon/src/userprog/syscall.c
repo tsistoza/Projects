@@ -38,6 +38,8 @@ static void sys_remove(struct intr_frame *f,const char*);
 static void sys_filesize(struct intr_frame *f, fid_t);
 static void sys_read(struct intr_frame *f, fid_t fid, char* arg2, unsigned arg3);
 static void sys_write(struct intr_frame *f, fid_t fid, const char* arg2, unsigned arg3);
+static void sys_seek(struct intr_frame *f, fid_t fid, unsigned arg2);
+static void sys_tell(struct intr_frame *f, fid_t fid);
 
 void
 syscall_init (void) 
@@ -81,11 +83,9 @@ syscall_handler (struct intr_frame *f)
                        f->eax = process_wait((tid_t) args[1]);
                        break;
     case SYS_EXEC:     validate_address(f, (uint8_t *) (args+1));
-                       validate_address(f, (uint8_t *) (args[1]));
                        sys_exec(f,(char *)args[1]);
                        break;
     case SYS_OPEN:     validate_address(f, (uint8_t *) (args+1));
-                       validate_address(f, (uint8_t *) args[1]);
                        sys_open(f, (char *)args[1]);
                        break;
     case SYS_CLOSE:    validate_address(f, (uint8_t *) (args+1));
@@ -93,23 +93,29 @@ syscall_handler (struct intr_frame *f)
                        break;
     case SYS_CREATE:   validate_address(f, (uint8_t *) (args+1));
                        validate_address(f, (uint8_t *) (args+2));
-                       validate_address(f, (uint8_t *) args[1]);
                        sys_create(f, (char *)args[1],args[2]);
                        break;
-    case SYS_REMOVE:   validate_address(f, (uint8_t *) args[1]);
+    case SYS_REMOVE:   validate_address(f, (uint8_t *) args+1);
                        sys_remove(f, (char *)args[1]);
                        break;
-    case SYS_FILESIZE: validate_address(f, (uint8_t *) args[1]);
+    case SYS_FILESIZE: validate_address(f, (uint8_t *) args+1);
                        sys_filesize(f, (fid_t)args[1]);
                        break;
-    case SYS_READ:     validate_address(f, (uint8_t *) args[1]);
-                       validate_address(f, (uint8_t *) args[3]);
+    case SYS_READ:     validate_address(f, (uint8_t *) args+1);
+                       validate_address(f, (uint8_t *) args+2);
+                       validate_address(f, (uint8_t *) args+3);
                        sys_read(f,(fid_t) args[1], (char *) args[2], (unsigned) args[3]);
                        break;
     case SYS_WRITE:    validate_address(f, (uint8_t *) args+1);
                        validate_address(f, (uint8_t *) args+2);
                        validate_address(f, (uint8_t *) args+3);
                        sys_write(f,(fid_t) args[1], (char *) args[2], (unsigned) args[3]);
+                       break;
+    case SYS_SEEK:     validate_address(f, (uint8_t *) args+1);
+                       validate_address(f, (uint8_t *) args+2);
+                       sys_seek(f, (fid_t) args[1], (unsigned) args[2]);
+    case SYS_TELL:     validate_address(f, (uint8_t *) args+1);
+                       sys_tell(f, (fid_t) args[1]);
                        break;
     default:           printf("DEFAULT SYS EXIT SYSCALL\n"); 
                        sys_exit(f,args[1]);
@@ -130,7 +136,7 @@ sys_exit (struct intr_frame *f, int status)
 {
   struct thread *curr = thread_current();
   f->eax = status;
-  printf("%s: exit(%d)", curr->name, status);
+  printf("%s: exit(%d)\n", curr->name, status);
   thread_exit(); /* process_exit kills all child processes */
 }
 
@@ -256,6 +262,35 @@ sys_write(struct intr_frame *f, fid_t fid, const char* buffer, unsigned size)
     lock_acquire(&filesys_lock);
     f->eax = fd ? file_write(fd->file, buffer, size): -1;
     lock_release(&filesys_lock);
+  }
+}
+
+static void
+sys_seek(struct intr_frame *f, fid_t fid, unsigned position)
+{
+  if (fid < 2) /* IF STDIN STDOUT THEN EXIT*/
+    sys_exit(f, -1);
+  
+  lock_acquire(&filesys_lock);
+  struct file_descriptor *fd = get_file_descriptor(fid);
+
+  if(fd)
+    file_seek(fd->file,position);
+
+  lock_release(&filesys_lock);
+
+}
+
+static void
+sys_tell(struct intr_frame *f, fid_t fid)
+{
+  struct file_descriptor *fd = get_file_descriptor(fid);
+  if(fd){
+    lock_acquire(&filesys_lock);
+    f->eax = file_tell(fd->file);
+    lock_release(&filesys_lock);
+  } else {
+    f->eax = -1;
   }
 }
 
